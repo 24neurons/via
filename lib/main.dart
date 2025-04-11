@@ -1,106 +1,123 @@
 import 'package:flutter/material.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:camera/camera.dart';
 
-void main() {
+List<CameraDescription> cameras = [];
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    cameras = await availableCameras();
+    // Log available cameras for debugging
+    for (var camera in cameras) {
+      print('Camera: ${camera.name}, Lens Direction: ${camera.lensDirection}');
+    }
+  } catch (e) {
+    print('Error fetching cameras: $e');
+  }
   runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(title: 'Flutter Demo', home: MyHomePage());
+    return MaterialApp(
+      home: CameraScreen(),
+    );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  MyHomePage({Key? key}) : super(key: key);
-
+class CameraScreen extends StatefulWidget {
   @override
-  _MyHomePageState createState() => _MyHomePageState();
+  _CameraScreenState createState() => _CameraScreenState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  SpeechToText _speechToText = SpeechToText();
-  bool _speechEnabled = false;
-  String _lastWords = '';
+class _CameraScreenState extends State<CameraScreen> {
+  CameraController? controller;
+  bool isCameraInitialized = false;
+  String errorMessage = '';
 
   @override
   void initState() {
     super.initState();
-    _initSpeech();
+    if (cameras.isNotEmpty) {
+      initializeCamera();
+    } else {
+      setState(() {
+        errorMessage = 'No cameras available';
+      });
+    }
   }
 
-  /// This has to happen only once per app
-  void _initSpeech() async {
-    _speechEnabled = await _speechToText.initialize();
-    setState(() {});
+  Future<void> initializeCamera() async {
+    // Select the back camera (or modify to select the desired camera)
+    CameraDescription selectedCamera = cameras.firstWhere(
+          (camera) => camera.lensDirection == CameraLensDirection.back,
+      orElse: () => cameras[0], // Fallback to first camera if no back camera
+    );
+
+    controller = CameraController(
+      selectedCamera,
+      ResolutionPreset.medium,
+    );
+
+    try {
+      await controller!.initialize();
+      if (!mounted) return;
+      setState(() {
+        isCameraInitialized = true;
+        errorMessage = '';
+      });
+    } catch (e) {
+      setState(() {
+        errorMessage = 'Error initializing camera: $e';
+      });
+      print('Error initializing camera: $e');
+    }
   }
 
-  /// Each time to start a speech recognition session
-  void _startListening() async {
-    await _speechToText.listen(onResult: _onSpeechResult);
-    setState(() {});
-  }
-
-  /// Manually stop the active speech recognition session
-  /// Note that there are also timeouts that each platform enforces
-  /// and the SpeechToText plugin supports setting timeouts on the
-  /// listen method.
-  void _stopListening() async {
-    await _speechToText.stop();
-    setState(() {});
-  }
-
-  /// This is the callback that the SpeechToText plugin calls when
-  /// the platform returns recognized words.
-  void _onSpeechResult(SpeechRecognitionResult result) {
-    setState(() {
-      _lastWords = result.recognizedWords;
-    });
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Speech Demo')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Container(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'Recognized words:',
-                style: TextStyle(fontSize: 20.0),
-              ),
-            ),
-            Expanded(
-              child: Container(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  // If listening is active show the recognized words
-                  _speechToText.isListening
-                      ? '$_lastWords'
-                      // If listening isn't active but could be tell the user
-                      // how to start it, otherwise indicate that speech
-                      // recognition is not yet ready or not supported on
-                      // the target device
-                      : _speechEnabled
-                      ? 'Tap the microphone to start listening...'
-                      : 'Speech not available',
-                ),
-              ),
-            ),
-          ],
-        ),
+      appBar: AppBar(
+        title: Text('Camera App'),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed:
-            // If not yet listening for speech start, otherwise stop
-            _speechToText.isNotListening ? _startListening : _stopListening,
-        tooltip: 'Listen',
-        child: Icon(_speechToText.isNotListening ? Icons.mic_off : Icons.mic),
+      body: Column(
+        children: [
+          if (errorMessage.isNotEmpty)
+            Expanded(
+              child: Center(
+                child: Text(errorMessage),
+              ),
+            )
+          else if (isCameraInitialized && controller != null)
+            Expanded(
+              child: CameraPreview(controller!),
+            )
+          else
+            Expanded(
+              child: Center(
+                child: CircularProgressIndicator(),
+              ),
+            ),
+          Padding(
+            padding: EdgeInsets.all(16.0),
+            child: FloatingActionButton(
+              onPressed: () {
+                if (!isCameraInitialized && cameras.isNotEmpty) {
+                  initializeCamera();
+                }
+              },
+              child: Icon(Icons.camera_alt),
+              tooltip: 'Open Camera',
+            ),
+          ),
+        ],
       ),
     );
   }
